@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ClickClickDrive - Interactive Quiz
 // @namespace    https://github.com/dragnu5
-// @version      1.0
+// @version      1.1
 // @description  Fast load, ad-block, interactive checkboxes, ui cleanup.
 // @author       dragnu5
 // @match        https://www.clickclickdrive.de/fragenkatalog/*
@@ -12,8 +12,29 @@
 (function() {
     'use strict';
 
-    // --- 0. AD & TRACKER BLOCKER ---
-    // Blocks specific domains to clean up console and speed up load
+    // --- 1. INSTANT CSS HIDING (Prevents Flashing) ---
+    // We inject a style tag immediately. The browser sees this rule
+    // before painting the elements, so they never appear on screen.
+    const css = `
+    .homepagePhotoWrapper,
+    .theoryInfo,
+    .tuvDekraWrapper,
+    .wrapper {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }
+    `;
+
+    const style = document.createElement('style');
+    style.type = 'text/css';
+    style.appendChild(document.createTextNode(css));
+    (document.head || document.documentElement).appendChild(style);
+
+
+    // --- 2. AD & TRACKER BLOCKER ---
     const blockedDomains = [
         'mirando.de',
         'fuseplatform.net',
@@ -43,46 +64,63 @@
     });
 
 
-    // --- 1. INITIALIZATION LOOP ---
-    // Checks every 50ms to run immediately when elements are ready
-    const checkInterval = setInterval(() => {
-        const scrollLinkDiv = document.querySelector('.scrollLink'); // This finds the top one
+    // --- 3. DOM CLEANUP (Garbage Collection) ---
+    // Even though they are hidden by CSS, we still want to remove the HTML nodes
+    // to stop them from loading images or executing internal scripts.
+    function cleanDom() {
+        const selectors = [
+            '.homepagePhotoWrapper',
+            '.theoryInfo',
+            '.tuvDekraWrapper',
+            '.wrapper'
+        ];
+        selectors.forEach(sel => {
+            const els = document.querySelectorAll(sel);
+            els.forEach(el => el.remove());
+        });
+    }
+    // Check repeatedly for the first few seconds to remove nodes as they parse
+    const cleanInterval = setInterval(cleanDom, 100);
+    setTimeout(() => clearInterval(cleanInterval), 3000);
+
+
+    // --- 4. QUIZ INITIALIZATION LOOP ---
+    // Only runs on question pages
+    const checkQuizInterval = setInterval(() => {
+        const scrollLinkDiv = document.querySelector('.scrollLink');
         const optionsLists = document.querySelectorAll('.options');
 
         if (scrollLinkDiv && optionsLists.length >= 2) {
-            clearInterval(checkInterval);
+            clearInterval(checkQuizInterval);
             initQuiz(scrollLinkDiv, optionsLists);
         }
     }, 50);
 
+    setTimeout(() => clearInterval(checkQuizInterval), 10000);
 
-    // --- 2. MAIN LOGIC ---
+
+    // --- 5. QUIZ LOGIC ---
     function initQuiz(scrollLinkDiv, allOptionsLists) {
 
-        // A. CLEANUP
-        const wrapper = document.querySelector('.wrapper');
-        if (wrapper) wrapper.remove();
-
+        // Remove specific quiz garbage
         const h3Correct = document.querySelector('h3#correct');
         if (h3Correct) h3Correct.remove();
 
         const questionDiv = allOptionsLists[0];
         const answerDiv = allOptionsLists[1];
 
-        // Hide answer key immediately
+        // Hide answer key
         answerDiv.style.display = 'none';
 
-        // Handle Comment Wrapper
+        // Hide comment wrapper
         const commentWrapper = document.querySelector('.commentWrapper');
         if (commentWrapper) {
             commentWrapper.style.display = 'none';
-
-            // ** NEW: Remove "Zurück nach oben" link inside comments **
             const backToTop = commentWrapper.querySelector('.scrollLink');
             if (backToTop) backToTop.remove();
         }
 
-        // B. INJECT CHECKBOXES
+        // Inject Checkboxes
         const questionItems = questionDiv.querySelectorAll('li');
         questionItems.forEach(li => {
             if (li.querySelector('.user-checkbox')) return;
@@ -108,7 +146,7 @@
             });
         });
 
-        // C. TOOLBAR UI
+        // Toolbar UI
         const actionButton = scrollLinkDiv.querySelector('a');
         if (actionButton) {
             actionButton.textContent = "Show answer";
@@ -155,11 +193,10 @@
             if (oldLinks) oldLinks.style.display = 'none';
         }
 
-        // Swap out the old scroll link for our new toolbar
         scrollLinkDiv.parentNode.insertBefore(toolbar, scrollLinkDiv);
         scrollLinkDiv.remove();
 
-        // D. CHECK ANSWER LOGIC
+        // Check Logic
         if (actionButton) {
             let isEvaluated = false;
             actionButton.addEventListener('click', function(e) {
